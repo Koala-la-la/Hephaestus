@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# EDE runtime (generated per project, not tracked)
+.edestate/
+
+# OS
+.DS_Store
+Thumbs.db
