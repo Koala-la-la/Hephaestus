@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ede"
-version = "0.1.0"
+version = "0.2.0"
 description = "Engineering Discipline Enforcer — DeepSeek-optimized agentic engineering CLI"
 readme = "README.md"
 license = {text = "MIT"}

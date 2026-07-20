@@ -60,7 +60,8 @@ def test_db_has_six_tables():
         from ede.persistence import Persistence
         db = Persistence(str(Path(tmp) / ".ede" / "state.db"))
         tables = db.get_tables()
-        expected = {"project", "task", "checkpoint", "gate_result", "audit_log", "change_log", "sqlite_sequence"}
+        expected = {"project", "task", "checkpoint", "gate_result", "audit_log", "change_log",
+                     "change_entry", "disagreement_evidence", "sqlite_sequence"}
         assert set(tables) == expected, f"Tables mismatch: got {set(tables)}, expected {expected}"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

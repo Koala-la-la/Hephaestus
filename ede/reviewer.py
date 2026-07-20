@@ -7,6 +7,7 @@ Spec FR-006:
 """
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -139,6 +140,99 @@ severity|file|message""",
     def add_reviewer(self, reviewer: Reviewer):
         self._reviewers.append(reviewer)
 
+    def _register_accuracy_reviewer(self):
+        """Register the accuracy reviewer that cross-validates Agent self-assessment."""
+        self._reviewers.append(Reviewer(
+            name="accuracy",
+            dimension="Accuracy",
+            system_prompt="""You are an accuracy reviewer. Your sole job is to compare the
+Agent's self-assessment (change summary, intent groups, risk labels)
+against the actual diff, and flag every disagreement.
+
+Core rule — **Mandatory Citation**:
+For EVERY disagreement you report, you MUST:
+  1. Quote the Agent's claim verbatim
+  2. Point to at least one specific diff line (with line number) that contradicts it
+  3. Copy-paste the exact diff line as evidence
+
+Output format (one finding per line, pipe-separated):
+  severity|file|line_number|agent_claim|reviewer_reason|diff_quote
+
+Rules:
+- severity: "error" if the Agent clearly mislabeled a high-risk change as low-risk.
+            "warning" if the Agent omitted or understated a meaningful change.
+- line_number: the exact line from the diff that proves the disagreement.
+- diff_quote: copy-paste the **verbatim** diff line. Leave empty ONLY if you have
+  no disagreement.
+
+WARNING: Findings without a valid line_number AND a non-empty diff_quote
+will be **silently discarded**. You must provide both.""" ,
+            review_prompt_template="""Compare the Agent's self-assessment against the actual diff.
+
+=== AGENT SELF-ASSESSMENT ===
+{spec}
+
+=== ACTUAL DIFF ===
+{diff}
+
+Output findings (one per line):
+  severity|file|line_number|agent_claim|reviewer_reason|diff_quote
+
+If the Agent's assessment is fully accurate, output a single line:
+  info||-|Accurate self-assessment||""",
+        ))
+
+    async def review_accuracy(
+        self, task_id: str, agent_self_assessment: str, diff_text: str
+    ) -> ReviewReport:
+        """Run accuracy reviewer against Agent's self-assessment.
+
+        Returns a ReviewReport where total_errors > 0 means the Agent's
+        assessment is inaccurate and human review is mandatory.
+        """
+        accuracy_reviewer = None
+        for r in self._reviewers:
+            if r.name == "accuracy":
+                accuracy_reviewer = r
+                break
+
+        if accuracy_reviewer is None:
+            self._register_accuracy_reviewer()
+            accuracy_reviewer = self._reviewers[-1]
+
+        report = ReviewReport(task_id=task_id)
+
+        prompt = accuracy_reviewer.review_prompt_template.format(
+            spec=agent_self_assessment[:4000],
+            diff=diff_text[:4000],
+        )
+        msgs = [
+            ChatMessage(role="system", content=accuracy_reviewer.system_prompt),
+            ChatMessage(role="user", content=prompt),
+        ]
+        result = await self.provider.chat(msgs, thinking_budget="medium")
+
+        # Use citation-aware parser for accuracy findings
+        findings = self._parse_findings_with_citations(accuracy_reviewer, result.content)
+        report.findings = findings
+        report.total_errors = sum(1 for f in findings if f.severity == "error")
+        report.total_warnings = sum(1 for f in findings if f.severity == "warning")
+
+        if not findings:
+            report.summary = "Agent self-assessment is accurate."
+        elif report.total_errors == 0:
+            report.summary = (
+                f"{report.total_warnings} disagreement(s) found — "
+                "Agent assessment mostly accurate, minor discrepancies."
+            )
+        else:
+            report.summary = (
+                f"{report.total_errors} error(s), {report.total_warnings} warning(s) — "
+                "Agent self-assessment is INACCURATE. Human review MANDATORY."
+            )
+
+        return report
+
     async def review(self, task_id: str, spec_text: str, diff_text: str) -> ReviewReport:
         """Run all reviewers in parallel and aggregate results."""
         report = ReviewReport(task_id=task_id)
@@ -179,6 +273,14 @@ severity|file|message""",
 
         return report
 
+    # ── Finding parsers ──────────────────────────────
+
+    _SEVERITY_TAG_RE = re.compile(
+        r"\[(error|warning|info)\]",
+        re.IGNORECASE,
+    )
+    _ACCURACY_SEVERITY_RE = re.compile(r"^(error|warning|info)\|", re.IGNORECASE)
+
     def _parse_findings(self, reviewer: Reviewer, content: str) -> list[ReviewFinding]:
         findings = []
         for line in content.split("\n"):
@@ -198,13 +300,74 @@ severity|file|message""",
                         file=file,
                         message=message,
                     ))
-            elif len(parts) == 1 and any(
-                kw in line.lower() for kw in ("error", "warning", "info", "issue", "missing")
-            ):
+                continue
+
+            # Fallback 1: severity tag [error] / [warning] / [info]
+            tag_m = self._SEVERITY_TAG_RE.search(line)
+            if tag_m:
+                findings.append(ReviewFinding(
+                    reviewer=reviewer.name,
+                    dimension=reviewer.dimension,
+                    severity=tag_m.group(1).lower(),
+                    message=line,
+                ))
+                continue
+
+            # Fallback 2: unstructured line → warning
+            if len(line) > 5 and not line.startswith("#") and not line.startswith("!"):
                 findings.append(ReviewFinding(
                     reviewer=reviewer.name,
                     dimension=reviewer.dimension,
                     severity="warning",
                     message=line,
                 ))
+
+        return findings
+
+    def _parse_findings_with_citations(
+        self, reviewer: Reviewer, content: str
+    ) -> list[ReviewFinding]:
+        """Parse accuracy-review output with mandatory citation format.
+
+        Expected format:
+          severity|file|line_number|agent_claim|reviewer_reason|diff_quote
+
+        Findings missing line_number or diff_quote are silently dropped.
+        """
+        findings = []
+        for line in content.split("\n"):
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("```"):
+                continue
+            if not self._ACCURACY_SEVERITY_RE.match(line):
+                continue
+            parts = line.split("|", 5)
+            if len(parts) < 6:
+                continue
+            severity = parts[0].strip().lower()
+            if severity not in ("error", "warning", "info"):
+                continue
+            file = parts[1].strip()
+            line_number_raw = parts[2].strip()
+            agent_claim = parts[3].strip()
+            reviewer_reason = parts[4].strip()
+            diff_quote = parts[5].strip()
+            # Mandatory citation guards
+            if not line_number_raw.isdigit():
+                continue
+            if not diff_quote:
+                continue
+            message = (
+                f"Agent claimed: <{agent_claim}> — "
+                f"Reviewer: {reviewer_reason} "
+                f"(L{line_number_raw}: ...{diff_quote[:80]}...)"
+            )
+            findings.append(ReviewFinding(
+                reviewer=reviewer.name,
+                dimension=reviewer.dimension,
+                severity=severity,
+                file=file,
+                line=line_number_raw,
+                message=message,
+            ))
         return findings

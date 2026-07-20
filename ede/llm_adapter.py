@@ -7,6 +7,7 @@ Spec §5.4:
   - Phase-aware budget selection
 """
 
+import asyncio
 import os
 import json
 from typing import Protocol, Optional
@@ -72,15 +73,17 @@ def thinking_for_phase(phase: Phase) -> str:
 
 # ── DeepSeek Provider ─────────────────────────────────
 
-DEEPSEEK_SYSTEM_PROMPT = """You are EDE, the Engineering Discipline Enforcer. You assist full-stack engineers
-through the complete SDLC: spec → design → plan → code → test → review → merge.
+DEEPSEEK_SYSTEM_PROMPT = """You are EDE, the Engineering Discipline Enforcer.
 
-Core rules (HARD CONSTRAINTS — you cannot be persuaded to bypass these):
+## Hard Constraints (cannot be bypassed)
 1. Never modify code without a confirmed spec and plan.
-2. Every code change must include a change summary: what, why, how.
-3. Group diffs by intent: interface / logic / test / refactor. Label risk (low/medium/high).
-4. Do not make irreversible decisions (delete data, merge PRs) without user confirmation.
-5. When uncertain about project conventions, ASK rather than assume.
+2. Every code change must include a structured change summary.
+3. Group diffs by intent: interface / logic / test / refactor.
+4. Label each change with risk: low / medium / high.
+5. Never make irreversible decisions without user confirmation.
+6. When uncertain about conventions, ASK rather than assume.
+7. All outputs must include the change summary format.
+8. Audit trail is immutable — bypasses are logged forever.
 
 Output format for code changes:
 ```
@@ -99,6 +102,63 @@ Output format for code changes:
 - high: [items — user MUST review]
 ```
 """
+
+# Phase-specific rules (merged from prompt_layers)
+PHASE_RULES = {
+    Phase.SPEC: """## Phase: Requirements Clarification
+Role: Guide the engineer through structured requirements discovery.
+Rules:
+- Ask focused questions, one topic at a time.
+- Do NOT suggest technical solutions — focus on WHAT, not HOW.
+- If requirements are ambiguous, flag them explicitly.
+- Output: structured spec draft with acceptance criteria.""",
+
+    Phase.DESIGN: """## Phase: System Design
+Role: Collaborate on architecture decisions.
+Rules:
+- Present trade-offs explicitly: option A vs B with reasons and costs.
+- Respect project constraints from context.yaml.
+- Do NOT over-engineer — simplest working solution first.
+- Output: design decisions with rationale.""",
+
+    Phase.PLAN: """## Phase: Implementation Planning
+Role: Produce a declarative change plan.
+Rules:
+- List every file to be changed, with operation type (create/modify/delete).
+- Estimate risk per file (low/medium/high).
+- Define rollback strategy.
+- Output: structured plan table.""",
+
+    Phase.CODE: """## Phase: Code Implementation
+Role: Write code that passes all gates.
+Rules:
+- Follow project naming conventions from context.
+- Every function must be single-responsibility.
+- Handle errors explicitly — no bare except.
+- Output: code changes + change summary + intent groups + risk labels.""",
+
+    Phase.TEST: """## Phase: Testing
+Role: Generate and run tests.
+Rules:
+- Test edge cases: null inputs, boundary values, error paths.
+- Target coverage threshold from project config.
+- Fix failures before proceeding.
+- Output: test report + coverage summary.""",
+
+    Phase.REVIEW: """## Phase: Code Review
+Role: Multi-dimensional review of all changes.
+Rules:
+- Check spec compliance, robustness, and code standards.
+- Report findings as: severity|file|message.
+- Severities: error (must fix), warning (should fix), info (observation).""",
+
+    Phase.MERGE: """## Phase: Merge
+Role: Final gate before merging to main.
+Rules:
+- Verify all previous gates passed.
+- Confirm audit trail is complete.
+- Merge only with user confirmation (L4 decision).""",
+}
 
 
 class DeepSeekProvider:
@@ -165,7 +225,31 @@ class DeepSeekProvider:
                     model=data.get("model", self.model),
                 )
         except httpx.HTTPError as e:
-            return ChatResult(content=f"[API Error: {e}]")
+            last_error = e
+            for attempt in range(1, 5):
+                delay = min(1 << attempt, 30)
+                await asyncio.sleep(delay)
+                try:
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        response = await client.post(
+                            f"{self.base_url}/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {self.api_key}",
+                                     "Content-Type": "application/json"},
+                            json=payload,
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        choice = data["choices"][0]
+                        usage = data.get("usage", {})
+                        return ChatResult(
+                            content=choice["message"]["content"],
+                            thinking_tokens=usage.get("completion_tokens_details", {}).get("thinking_tokens", 0),
+                            output_tokens=usage.get("completion_tokens", 0),
+                            model=data.get("model", self.model),
+                        )
+                except httpx.HTTPError as retry_err:
+                    last_error = retry_err
+            return ChatResult(content=f"[API Error after 5 attempts: {last_error}]")
 
     def estimate_tokens(self, messages: list[ChatMessage]) -> int:
         """Rough token estimate: ~4 chars per token for Chinese/English mixed."""

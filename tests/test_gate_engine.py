@@ -1,7 +1,8 @@
 """Unit tests for Gate Engine — L1/L2/L3 retry logic."""
 
 import sys
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.gate_engine import GateEngine, Gate, GateLevel
 from ede.models import GateResult

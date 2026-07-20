@@ -1,7 +1,11 @@
 """Unit tests for builtin gates."""
 
-import sys, os, tempfile, shutil
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+import sys
+import os
+import tempfile
+import shutil
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.gates.builtin import (
     make_lint_gate, make_test_gate, make_coverage_gate, register_builtin_gates,

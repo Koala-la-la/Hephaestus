@@ -1,7 +1,7 @@
 """Data classes and SQLite schema for the EDE pipeline.
 
 Schema mirrors spec §5.2:
-  Project 1──N Task 1──N ChangeLog
+  Project 1──N Task 1──N ChangeLog 1──N ChangeEntry
   Task 1──N Checkpoint / GateResult / AuditLog
 """
 
@@ -54,6 +54,12 @@ class RiskLabel(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+
+
+class AccuracyScore(str, Enum):
+    ACCURATE = "accurate"
+    PARTIAL = "partial"
+    INACCURATE = "inaccurate"
 
 
 # ── Data Classes ───────────────────────────────────────
@@ -174,6 +180,69 @@ class ChangeLog:
         }
 
 
+# ── Accuracy review types ──────────────────────────────
+
+@dataclass
+class DisagreementEvidence:
+    """A single disagreement between Agent self-assessment and Reviewer."""
+    reviewer: str
+    severity: str                    # "error" | "warning" | "info"
+    file_path: str
+    line_number: int
+    agent_claim: str                 # what the Agent claimed
+    reviewer_reason: str             # why the Reviewer disagrees
+    diff_quote: str                  # verbatim diff line proving the point
+
+    def to_dict(self) -> dict:
+        return {
+            "reviewer": self.reviewer,
+            "severity": self.severity,
+            "file_path": self.file_path,
+            "line_number": self.line_number,
+            "agent_claim": self.agent_claim,
+            "reviewer_reason": self.reviewer_reason,
+            "diff_quote": self.diff_quote,
+        }
+
+
+@dataclass
+class ChangeEntry:
+    """A single change item within a ChangeLog, with accuracy metadata."""
+    entry_id: str
+    change_id: str                   # FK → ChangeLog
+    intent_group: IntentGroup = IntentGroup.LOGIC
+    agent_risk_label: RiskLabel = RiskLabel.LOW
+    effective_risk_label: RiskLabel = RiskLabel.LOW
+    accuracy_score: str = ""         # "accurate" | "partial" | "inaccurate"
+    file_path: str = ""
+    summary: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "entry_id": self.entry_id,
+            "change_id": self.change_id,
+            "intent_group": self.intent_group.value,
+            "agent_risk_label": self.agent_risk_label.value,
+            "effective_risk_label": self.effective_risk_label.value,
+            "accuracy_score": self.accuracy_score,
+            "file_path": self.file_path,
+            "summary": self.summary,
+        }
+
+    def upgrade_if_inaccurate(self, accuracy: str) -> None:
+        """Upgrade effective_risk if accuracy review found inaccuracies."""
+        self.accuracy_score = accuracy
+        if accuracy == AccuracyScore.INACCURATE.value:
+            upgrade = {
+                RiskLabel.LOW.value: RiskLabel.MEDIUM.value,
+                RiskLabel.MEDIUM.value: RiskLabel.HIGH.value,
+                RiskLabel.HIGH.value: RiskLabel.HIGH.value,
+            }
+            self.effective_risk_label = RiskLabel(
+                upgrade.get(self.agent_risk_label.value, self.agent_risk_label.value)
+            )
+
+
 # ── SQL DDL ────────────────────────────────────────────
 
 DDL_CREATE_TABLES = """
@@ -222,6 +291,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail       TEXT DEFAULT '',
     operator     TEXT DEFAULT 'system',
     irreversible INTEGER NOT NULL DEFAULT 1,
+    integrity_hash TEXT DEFAULT '',
     created_at   TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES task(task_id)
 );
@@ -236,5 +306,32 @@ CREATE TABLE IF NOT EXISTS change_log (
     diff_hash    TEXT DEFAULT '',
     created_at   TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES task(task_id)
+);
+
+CREATE TABLE IF NOT EXISTS change_entry (
+    entry_id             TEXT PRIMARY KEY,
+    change_id            TEXT NOT NULL,
+    intent_group         TEXT NOT NULL DEFAULT 'logic',
+    agent_risk_label     TEXT NOT NULL DEFAULT 'low',
+    effective_risk_label TEXT NOT NULL DEFAULT 'low',
+    accuracy_score       TEXT DEFAULT '',
+    file_path            TEXT DEFAULT '',
+    summary              TEXT DEFAULT '',
+    created_at           TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (change_id) REFERENCES change_log(change_id)
+);
+
+CREATE TABLE IF NOT EXISTS disagreement_evidence (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id        TEXT NOT NULL,
+    reviewer        TEXT NOT NULL,
+    severity        TEXT NOT NULL,
+    file_path       TEXT DEFAULT '',
+    line_number     INTEGER NOT NULL DEFAULT 0,
+    agent_claim     TEXT DEFAULT '',
+    reviewer_reason TEXT DEFAULT '',
+    diff_quote      TEXT DEFAULT '',
+    created_at      TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (entry_id) REFERENCES change_entry(entry_id)
 );
 """

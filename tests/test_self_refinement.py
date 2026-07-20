@@ -1,7 +1,11 @@
 """Unit tests for Self-Refinement Engine."""
 
-import sys, os, tempfile, shutil
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+import sys
+import os
+import tempfile
+import shutil
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.self_refinement import SelfRefinement
 

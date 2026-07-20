@@ -1,7 +1,9 @@
 """Unit tests for Reviewer Orchestrator."""
 
-import sys, os
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+import sys
+import os
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.reviewer import (
     Reviewer, ReviewFinding, ReviewReport, ReviewerOrchestrator,

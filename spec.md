@@ -1,6 +1,6 @@
 # Spec: DeepSeek 工程纪律执行器（Engineering Discipline Enforcer）
 
-> 版本: 0.3.0 | 状态: Draft | 日期: 2026-07-15
+> 版本: 0.2.0 | 状态: Delivered | 日期: 2026-07-20
 
 ---
 
@@ -56,6 +56,8 @@
 - **AC-003**：Given 用户使用 `--bypass` 跳过某门禁，When 查看任务审计日志，Then 日志包含绕过时间、绕过阶段、操作人，且不可删除。
 - **AC-004**：Given 进程重启或终端关闭，When 用户重新启动 agent，Then 任务状态完整恢复，从断点继续。
 - **AC-005**：Given 一个 task 的代码变更完成，When AI 输出变更摘要和 diff，Then 摘要包含"改了什么、为什么改、怎么改的"，diff 按变更意图分组（接口变更 / 逻辑变更 / 测试新增 / 重构），并标注风险点。
+- **AC-007**：Given Agent 的变更摘要中某变更风险标注为 low，When Accuracy Reviewer 判定为 inaccurate 并附具体 diff 引用证据，Then 系统将该变更有效风险升级为 medium/high，且 task 状态进入 WAIT_USER（Trust Tier 不可覆盖）。
+
 - **AC-006**：Given 一个标准 CRUD 功能（3 个 task），When 使用 EDE 完成 spec→merge 全流程，Then 工程师实际投入时间（不含 AI 等待时间）≤ 纯手工开发的 50%。
 
 ---
@@ -221,9 +223,14 @@
 
 **决策 2：变更摘要生成方式**
 
-- **选型**：Agent 自评 + Reviewer 校验（选项 C）
-- **理由**：Agent 生成摘要（快），Reviewer Agent 交叉校验（减少自评偏差），差异 > 阈值则标记需人工审查
-- **代价**：每个 code task 多一次 Reviewer LLM 调用
+- **选型**：Agent 自评 + Accuracy Reviewer 交叉校验 + 系统自动升级（选项 C 增强版）
+- **理由**：
+  1. Agent 生成摘要（快）—— Agent 自我声明改了什么、风险多大
+  2. Accuracy Reviewer 交叉校验——对比 Agent 自评与实际 diff，每个 disagreement 必须附 diff 引用行号和原文作为证据（Mandatory Citation）
+  3. 系统自动升级——inaccurate 判定触发 effective_risk 升级（low->medium, medium->high），且强制 WAIT_USER，Trust Tier 不可覆盖（B 类约束）
+  4. 工程师 5 秒最终裁决——看到 Reviewer 引用的具体代码行，快速做决定
+- **代价**：每个 code task 多一次 Accuracy Reviewer LLM 调用
+- **核心安全机制**：Reviewer 的 finding 若缺少 line_number 或 diff_quote，系统直接丢弃——防止 Reviewer 幻觉。即便 Trust Tier T3，accuracy 触发的 WAIT_USER 也必须人工确认
 
 **决策 3：隐形条件收敛方向**
 
@@ -425,3 +432,76 @@ history:
 ---
 
 > **下一阶段**：进入 `workflow-code-generation`，搭建项目骨架（M0）。
+
+
+---
+
+## 8. Trust Tier 设计（v0.4 新增）
+
+> **背景**：强模型时代，harness 层的约束需要区分"补偿模型弱点的（A 类）"和"工程纪律本身的（B 类）"。Trust Tier 让工程师根据项目风险等级动态调整约束强度。
+
+### 8.1 约束分类
+
+| 类别 | 定义 | 例子 | Trust Tier 行为 |
+|------|------|------|---------------|
+| **A 类** | 补偿模型弱点的约束 | 人工关卡、thinking budget 预设、保守收敛 | 随 Tier 升高从阻断→通知→自动 |
+| **B 类** | 软件工程的内禀约束 | 审计日志、测试门禁、变更可见性 | 所有 Tier 保留，不可关闭 |
+
+### 8.2 Tier 语义
+
+| Tier | 人工关卡 | L3 门禁失败 | L1/L2 门禁 | 描述 |
+|------|---------|-----------|-----------|------|
+| **T0: Conservative** | 每次阻断等待确认 | 阻断等待确认 | 自动修复后仍阻断 | 当前 EDE 行为 |
+| **T1: Assisted** | 自动通过 + 输出摘要 | 阻断等待确认 | 自动修复 2 次 → 阻断 | 半自动 |
+| **T2: Autonomous** | 自动通过 + 摘要 | 通知 + 自动重试 1 次 | 自动修复 3 次 → 通知 | 高度信任 |
+| **T3: Full Auto** | 全部自动 | 通知，不阻断 | 自动修复 → 通知 | 仅保留审计 |
+
+**底线**：审计日志在 T0-T3 全部完整保留，不可删除。T3 也不会越过这条线。
+
+### 8.3 配置格式
+
+```yaml
+# .ede/config.yaml
+trust:
+  tier: T1                    # 默认 Tier
+
+  overrides:                  # 按阶段覆盖
+    merge: T0                 # merge 永远手动确认
+    code: T2                  # code 阶段信任模型
+```
+
+### 8.4 数据模型
+
+```python
+@dataclass
+class TrustConfig:
+    tier: str = "T1"
+    overrides: dict[str, str] = field(default_factory=dict)
+
+    def effective_tier(self, phase: str) -> str:
+        return self.overrides.get(phase, self.tier)
+
+    def should_block_human_checkpoint(self, phase: str) -> bool:
+        return self.effective_tier(phase) == "T0"
+
+    def should_block_on_l3_failure(self, phase: str) -> bool:
+        return self.effective_tier(phase) in ("T0", "T1")
+```
+
+### 8.5 集成点
+
+| 模块 | 改动 |
+|------|------|
+| `context_engine.py` | 新增 `load_trust_config()` |
+| `stage_engine.py` | `_complete_stage()` 在 WAIT_USER 前查 `should_block_human_checkpoint()` |
+| `gate_engine.py` | `_run_with_retry()` 在 L3 失败后查 `should_block_on_l3_failure()` |
+| `cli.py` | `ede init` 生成默认 `trust` 配置段 |
+
+### 8.6 典型场景
+
+| 场景 | 配置 |
+|------|------|
+| 支付系统 | `tier: T0` |
+| 内部工具 | `tier: T2`, `merge: T0` |
+| 实验项目 | `tier: T3` |
+| 混合（大部分自动，关键手动） | `tier: T1`, `merge: T0` |

@@ -81,6 +81,62 @@ class ProjectContext:
         return "\n".join(lines)
 
 
+
+
+# ── Trust Tier ─────────────────────────────────────────
+
+class TrustConfig:
+    """Trust tier configuration for adaptive constraint enforcement."""
+
+    VALID_TIERS = ("T0", "T1", "T2", "T3")
+
+    def __init__(self, tier: str = "T1", overrides: dict[str, str] = None):
+        self.tier = tier if tier in self.VALID_TIERS else "T1"
+        self.overrides = overrides or {}
+
+    @classmethod
+    def from_yaml(cls, path: pathlib.Path = None) -> "TrustConfig":
+        """Load trust config from .ede/config.yaml. Returns defaults if missing."""
+        if path is None:
+            path = pathlib.Path(".ede/config.yaml")
+        if not path.exists():
+            return cls()
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        trust = raw.get("trust", {})
+        return cls(
+            tier=trust.get("tier", "T1"),
+            overrides=trust.get("overrides", {}),
+        )
+
+    def effective_tier(self, phase: str) -> str:
+        """Return the trust tier for a given phase, respecting overrides."""
+        return self.overrides.get(phase, self.tier)
+
+    def should_block_human_checkpoint(self, phase: str) -> bool:
+        """T0 blocks human checkpoints. T1+ passes automatically."""
+        return self.effective_tier(phase) == "T0"
+
+    def should_block_on_l3_failure(self, phase: str) -> bool:
+        """T0-T1 block on L3 failure. T2-T3 notify only."""
+        return self.effective_tier(phase) in ("T0", "T1")
+
+    def max_auto_retries(self, phase: str, gate_level: int) -> int:
+        """Return max retries for a gate at a given trust tier.
+        T0: L1=2, L2=1, L3=0
+        T1: L1=2, L2=1, L3=0
+        T2: L1=3, L2=2, L3=1
+        T3: L1=3, L2=3, L3=1 (notify only)
+        """
+        tier = self.effective_tier(phase)
+        tiers = {
+            "T0": {1: 2, 2: 1, 3: 0},
+            "T1": {1: 2, 2: 1, 3: 0},
+            "T2": {1: 3, 2: 2, 3: 1},
+            "T3": {1: 3, 2: 3, 3: 1},
+        }
+        return tiers.get(tier, {}).get(gate_level, 0)
+
+
 class ContextEngine:
     """Loads, parses, and injects project context into LLM prompts."""
 

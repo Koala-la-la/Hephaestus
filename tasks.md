@@ -79,7 +79,7 @@
   - `ede/cli.py`（修改）— 新增 task 子命令组 + confirm 命令
   - `ede/persistence.py`（修改）— 新增 task CRUD + checkpoint CRUD
 
-## Task 4: 测试
+## Task 4: 测试 ✅
 
 - **Status**: Completed
 - **目标**: 端到端测试 spec → design → plan 全管线 + 人工关卡
@@ -92,31 +92,31 @@
 
 ---
 
-# Tasks: M2 — 编码执行
+# Tasks: M2 — 编码执行 ✅ (Completed in v0.2.0)
 
 > 目标：LLM Adapter + Context Engine 集成到管线，AI 可写代码并输出变更摘要
 
-## Task 1: LLM Adapter
+## Task 1: LLM Adapter ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: 实现 DeepSeek API 封装，含 thinking budget 控制、前缀缓存策略、超时重试
 - **验收标准**: `LLM.chat(messages, thinking_budget="high")` 返回 DeepSeek 响应；thinking budget 随阶段自动选择
 - **依赖**: 无
 - **涉及文件**:
   - `ede/llm_adapter.py`（新增）— LLMProvider Protocol + DeepSeekProvider
 
-## Task 2: Context Engine
+## Task 2: Context Engine ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: 项目上下文管理——读取 `.ede/context.yaml`，注入到 LLM prompt 前缀
 - **验收标准**: `ContextEngine.resolve(task)` 返回包含项目约定 + 约束的 prompt 前缀
 - **依赖**: 无
 - **涉及文件**:
   - `ede/context_engine.py`（新增）— ContextEngine + context.yaml 解析
 
-## Task 3: 管线集成
+## Task 3: 管线集成 ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: 将 LLM Adapter + Context Engine 接入 Stage Engine 的 code/test 阶段
 - **验收标准**: `ede task run` 在 code 阶段调用 LLM（dry-run 模式），输出模拟的变更摘要
 - **依赖**: Task 1, Task 2
@@ -124,9 +124,9 @@
   - `ede/stage_engine.py`（修改）— Stage 支持 run_fn 回调
   - `ede/cli.py`（修改）— 初始化 LLM Adapter
 
-## Task 4: 测试
+## Task 4: 测试 ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: LLM Adapter 单元测试 + Context Engine 单元测试 + 集成测试
 - **验收标准**: 6+ 测试覆盖 Provider 协议、上下文解析、thinking budget 路由
 - **依赖**: Task 3
@@ -136,22 +136,22 @@
 
 ---
 
-# Tasks: M3 — 变更可见性
+# Tasks: M3 — 变更可见性 ✅ (Completed in v0.2.0)
 
 > 目标：每个 task 完成后输出结构化变更摘要 + 意图分组 + 风险标注（AC-005）
 
-## Task 1: 变更解析引擎
+## Task 1: 变更解析引擎 ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: 解析 LLM 输出的变更摘要，提取结构化 ChangeLog（summary、intent_group、risk_label、spec_ref）
 - **验收标准**: 输入模拟的 LLM 变更输出，返回 ChangeLog 数据对象，字段齐全
 - **依赖**: M2（LLM Adapter 已就绪）
 - **涉及文件**:
   - `ede/change_visibility.py`（新增）— ChangeLog 解析 + 意图分组 + 风险评估
 
-## Task 2: 管线集成
+## Task 2: 管线集成 ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: code 阶段 LLM 输出后，自动调用变更可见性解析，持久化 ChangeLog 到 SQLite
 - **验收标准**: `ede task run` 在 code 阶段完成后，ChangeLog 表有记录
 - **依赖**: Task 1
@@ -159,9 +159,9 @@
   - `ede/cli.py`（修改）— code 阶段 run_fn 新增解析 + 持久化
   - `ede/persistence.py`（修改）— 新增 ChangeLog CRUD
 
-## Task 3: 测试
+## Task 3: 测试 ✅
 
-- **Status**: Pending
+- **Status**: Completed
 - **目标**: 变更解析单元测试 + 集成测试
 - **验收标准**: 6+ 测试覆盖解析逻辑、意图分组、风险标注、DB 持久化
 - **依赖**: Task 2

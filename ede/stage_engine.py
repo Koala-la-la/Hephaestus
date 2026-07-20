@@ -14,6 +14,7 @@ from typing import Optional, Callable
 from ede.models import Phase, TaskStatus, CheckpointStatus
 from ede.state_machine import StateMachine, StageContext
 from ede.gate_engine import GateEngine, GateResult
+from ede.context_engine import TrustConfig
 
 
 @dataclass
@@ -40,15 +41,21 @@ class StageEngine:
       - Persist state to SQLite after every transition
     """
 
-    def __init__(self, persistence, gate_engine: GateEngine):
+    def __init__(self, persistence, gate_engine: GateEngine, trust_config: TrustConfig = None):
         self.db = persistence
         self.gates = gate_engine
+        self.trust = trust_config or TrustConfig()
         self.sm = StateMachine()
         self._stages: dict[Phase, Stage] = {}
+        self._reviewer = None  # injected by CLI for accuracy checks
 
     def register_stage(self, stage: Stage) -> None:
         """Register a pipeline stage."""
         self._stages[stage.phase] = stage
+
+    def set_reviewer(self, reviewer_orchestrator) -> None:
+        """Inject a ReviewerOrchestrator for accuracy checks after code stage."""
+        self._reviewer = reviewer_orchestrator
 
     # ── Pipeline control ──────────────────────────────
 
@@ -109,7 +116,8 @@ class StageEngine:
 
     # ── Internal transitions ──────────────────────────
 
-    def _start_stage(self, task_id: str, phase: Phase, stage: Optional[Stage]) -> dict:
+    def _start_stage(self, task_id: str, phase: Phase, stage: Optional[Stage],
+                     _retry_depth: int = 0) -> dict:
         """Check prerequisites and start the stage."""
         if stage is None:
             return {"ok": False, "error": f"No stage registered for phase: {phase.value}"}
@@ -129,9 +137,10 @@ class StageEngine:
         self.db.write_audit(task_id, "stage_running", phase.value)
         if stage.run_fn is not None:
             stage.run_fn(task_id, phase)
-        return self._complete_stage(task_id, phase, stage)
+        return self._complete_stage(task_id, phase, stage, _retry_depth)
 
-    def _complete_stage(self, task_id: str, phase: Phase, stage: Stage) -> dict:
+    def _complete_stage(self, task_id: str, phase: Phase, stage: Stage,
+                        _retry_depth: int = 0) -> dict:
         """Complete the stage: run gates, then decide next state."""
         now = datetime.now(timezone.utc).isoformat()
 
@@ -143,23 +152,104 @@ class StageEngine:
                 # Check if any failure is L3 (immediate WAIT_USER)
                 l3_failures = [f for f in failed if self._gate_level(f.gate_name) == 3]
                 if l3_failures:
-                    self.db.update_task(task_id, status=TaskStatus.WAIT_USER.value, updated_at=now)
-                    self.db.write_audit(task_id, "l3_blocked", str([f.gate_name for f in l3_failures]))
-                    return {"ok": True, "state": "wait_user", "phase": phase.value,
-                            "reason": f"L3 gates failed: {[f.gate_name for f in l3_failures]}"}
+                    if self.trust.should_block_on_l3_failure(phase.value):
+                        self.db.update_task(task_id, status=TaskStatus.WAIT_USER.value, updated_at=now)
+                        self.db.write_audit(task_id, "l3_blocked", str([f.gate_name for f in l3_failures]))
+                        return {"ok": True, "state": "wait_user", "phase": phase.value,
+                                "reason": f"L3 gates failed: {[f.gate_name for f in l3_failures]}"}
+                    else:
+                        # T2+: notify but don't block
+                        self.db.write_audit(task_id, "l3_notified", f"Tier {self.trust.effective_tier(phase.value)}: {[f.gate_name for f in l3_failures]} — proceeding")
 
-                # L1/L2 failures — mark blocked
+                # L1/L2 failures — block or auto-retry (Trust-aware)
+                tier = self.trust.effective_tier(phase.value)
+                if tier in ("T2", "T3"):
+                    max_retries = self.trust.max_auto_retries(phase.value, 2)
+                    if _retry_depth >= max_retries:
+                        self.db.write_audit(task_id, "gates_auto_retry_exhausted",
+                            f"Tier {tier}: {_retry_depth} retries exhausted for {[f.gate_name for f in failed]}")
+                    else:
+                        self.db.write_audit(task_id, "gates_auto_retry",
+                            f"Tier {tier}: retry {_retry_depth+1}/{max_retries} for {[f.gate_name for f in failed]}")
+                        self.db.update_task(task_id, status=TaskStatus.PENDING.value, updated_at=now)
+                        return self._start_stage(task_id, phase, stage, _retry_depth + 1)
                 self.db.update_task(task_id, status=TaskStatus.BLOCKED.value, updated_at=now)
                 self.db.write_audit(task_id, "gates_failed", str([f.gate_name for f in failed]))
                 return {"ok": False, "blocked": True, "failed_gates": [f.gate_name for f in failed]}
 
         # All gates passed
         if stage.has_human_checkpoint():
-            # Set WAIT_USER + create checkpoint
-            self.db.update_task(task_id, status=TaskStatus.WAIT_USER.value, updated_at=now)
-            self.db.create_checkpoint(task_id, phase.value, CheckpointStatus.PENDING.value)
-            return {"ok": True, "state": "wait_user", "phase": phase.value,
-                    "message": f"Stage {phase.value} complete. Run `ede confirm {phase.value}` to proceed."}
+            if self.trust.should_block_human_checkpoint(phase.value):
+                # T0: block and wait
+                self.db.update_task(task_id, status=TaskStatus.WAIT_USER.value, updated_at=now)
+                self.db.create_checkpoint(task_id, phase.value, CheckpointStatus.PENDING.value)
+                return {"ok": True, "state": "wait_user", "phase": phase.value,
+                        "message": f"Stage {phase.value} complete. Run `ede confirm {phase.value}` to proceed."}
+            else:
+                # T1+: auto-pass, go to DONE
+                self.db.write_audit(task_id, "auto_checkpoint", f"Tier {self.trust.effective_tier(phase.value)}: {phase.value} auto-passed")
+                self.db.update_task(task_id, status=TaskStatus.DONE.value, updated_at=now)
+                return {"ok": True, "state": "done", "phase": phase.value}
+
+        # Accuracy check for CODE phase (Trust Tier cannot override)
+        if phase == Phase.CODE and self._reviewer is not None:
+            try:
+                import asyncio
+                # Collect agent self-assessment from change entries (preferred) or logs
+                change_logs = self.db.get_change_logs(task_id)
+                agent_assessment = ""
+                for cl in change_logs:
+                    agent_assessment += f"Summary: {cl.get('summary', '')}\n"
+                    # Try to get per-file entries for richer assessment
+                    entries = self.db.get_change_entries(cl.get('change_id', ''))
+                    if entries:
+                        for e in entries:
+                            agent_assessment += (
+                                f"  File: {e.get('file_path', '')} "
+                                f"Intent: {e.get('intent_group', '')} "
+                                f"Risk: {e.get('agent_risk_label', '')}\n"
+                            )
+                    else:
+                        agent_assessment += (
+                            f"  Intent: {cl.get('intent_group', '')} "
+                            f"Risk: {cl.get('risk_label', '')}\n"
+                        )
+                if agent_assessment:
+                    # Get diff from git
+                    import subprocess
+                    try:
+                        diff_result = subprocess.run(
+                            ["git", "diff", "--unified=3"],
+                            capture_output=True, text=True, timeout=30,
+                        )
+                        diff_text = diff_result.stdout[:4000]
+                    except Exception:
+                        diff_text = "[diff unavailable]"
+                    # Run accuracy review (async → sync)
+                    loop = None
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    accuracy_report = loop.run_until_complete(
+                        self._reviewer.review_accuracy(task_id, agent_assessment, diff_text)
+                    )
+                    if accuracy_report.total_errors > 0:
+                        # Agent assessment inaccurate → force WAIT_USER
+                        self.db.update_task(task_id, status=TaskStatus.WAIT_USER.value, updated_at=now)
+                        self.db.write_audit(task_id, "accuracy_blocked",
+                            f"{accuracy_report.total_errors} inaccuracies found. {accuracy_report.summary}")
+                        return {
+                            "ok": True, "state": "wait_user", "phase": phase.value,
+                            "message": f"Agent self-assessment INACCURATE ({accuracy_report.total_errors} errors). "
+                                       f"Human review MANDATORY. Run `ede confirm code` after review.",
+                        }
+            except Exception:
+                import logging
+                logging.getLogger("ede.stage_engine").warning(
+                    "Accuracy check failed, proceeding without it", exc_info=True
+                )
 
         # No checkpoint needed — mark DONE
         self.db.update_task(task_id, status=TaskStatus.DONE.value, updated_at=now)

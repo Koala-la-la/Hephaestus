@@ -1,7 +1,8 @@
 """Unit tests for Change Visibility Engine."""
 
 import sys
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.change_visibility import (
     parse_change_summary, build_change_summary_prompt,

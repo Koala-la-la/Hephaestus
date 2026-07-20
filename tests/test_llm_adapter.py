@@ -1,7 +1,8 @@
 """Unit tests for LLM Adapter."""
 
 import sys
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.llm_adapter import (
     DeepSeekProvider, ChatMessage, ChatResult,
@@ -30,7 +31,7 @@ def test_merge_phase_off_budget():
 
 def test_system_prompt_contains_constraints():
     """System prompt includes hard constraints."""
-    assert "HARD CONSTRAINTS" in DEEPSEEK_SYSTEM_PROMPT
+    assert "Hard Constraints" in DEEPSEEK_SYSTEM_PROMPT
     assert "spec and plan" in DEEPSEEK_SYSTEM_PROMPT
 
 

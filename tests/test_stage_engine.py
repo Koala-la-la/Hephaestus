@@ -1,7 +1,11 @@
 """Unit tests for Stage Engine — pipeline orchestration."""
 
-import sys, os, tempfile, shutil
-sys.path.insert(0, r"C:\obsidian\KB\weiwei")
+import sys
+import os
+import tempfile
+import shutil
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.stage_engine import StageEngine, Stage
 from ede.gate_engine import GateEngine, Gate, GateLevel
@@ -17,7 +21,8 @@ def _setup(tmpdir: str) -> StageEngine:
     db.insert_project("p1", "test")
 
     gates = GateEngine()
-    engine = StageEngine(db, gates)
+    from ede.context_engine import TrustConfig
+    engine = StageEngine(db, gates, TrustConfig(tier="T0"))
 
     # Register all seven stages
     for phase in Phase:
@@ -127,7 +132,8 @@ def test_full_seven_phase_pipeline():
         db.insert_project("p1", "full-test")
 
         gates = GateEngine()
-        engine = StageEngine(db, gates)
+        from ede.context_engine import TrustConfig
+        engine = StageEngine(db, gates, TrustConfig(tier="T0"))
         for phase in Phase:
             engine.register_stage(Stage(phase))
         engine.db.create_task("tx", "p1", "full pipeline")
