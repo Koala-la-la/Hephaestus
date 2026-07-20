@@ -122,6 +122,16 @@ class StageEngine:
         if stage is None:
             return {"ok": False, "error": f"No stage registered for phase: {phase.value}"}
 
+        # Check task dependencies
+        task = self.db.get_task(task_id)
+        depends_on = task.get("depends_on", "") if task else ""
+        if depends_on:
+            dep_task = self.db.get_task(depends_on)
+            if dep_task is None:
+                return {"ok": False, "error": f"Depends on task {depends_on} which does not exist"}
+            if dep_task.get("status") != "done" or dep_task.get("phase") != "merge":
+                return {"ok": False, "error": f"Depends on task {depends_on} which is not complete (status={dep_task.get('status')}, phase={dep_task.get('phase')})"}
+
         # Check prerequisites
         if stage.prerequisites:
             results = self.gates.run_gates(stage.prerequisites)

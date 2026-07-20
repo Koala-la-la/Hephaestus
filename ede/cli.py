@@ -124,8 +124,67 @@ def _get_engine() -> StageEngine:
     register_builtin_gates(gates, ".")
     engine.register_stage(Stage(Phase.CODE, prerequisites=[], gates=["lint", "test"], run_fn=_make_run_fn(Phase.CODE)))
     engine.register_stage(Stage(Phase.TEST, prerequisites=[], gates=["test", "coverage"], run_fn=_make_run_fn(Phase.TEST)))
-    engine.register_stage(Stage(Phase.REVIEW, prerequisites=[], gates=[], run_fn=_make_run_fn(Phase.REVIEW)))
-    engine.register_stage(Stage(Phase.MERGE, prerequisites=[], gates=[], run_fn=_make_run_fn(Phase.MERGE)))
+    # Special run_fns for REVIEW (3-parallel reviewers) and MERGE (gate verification)
+    def _make_review_fn(phase):
+        def _run(task_id, p):
+            if llm is None:
+                return
+            import asyncio
+            reviewer_llm = DeepSeekProvider(api_key=llm.api_key, model=llm.model, base_url=llm.base_url)
+            orchestrator = ReviewerOrchestrator(reviewer_llm)
+            try:
+                diff = __import__('subprocess').run(
+                    ["git", "diff", "--unified=3"], capture_output=True, text=True, timeout=30
+                ).stdout[:4000]
+            except Exception:
+                diff = "[diff unavailable]"
+            spec_text = ctx_engine.resolve()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            report = loop.run_until_complete(orchestrator.review(task_id, spec_text, diff))
+            console.print(f"\n  [bold]Review Report[/bold] ({report.total_errors} errors, {report.total_warnings} warnings)")
+            for f in report.findings:
+                icon = {"error": "[red]X[/red]", "warning": "[yellow]!![/yellow]", "info": "[dim]i[/dim]"}.get(f.severity, "?")
+                console.print(f"    {icon} [{f.dimension}] {f.message[:100]}")
+            if report.total_errors > 0:
+                console.print(f"\n  [bold red]{report.total_errors} errors found — must fix before merge.[/bold red]")
+            elif report.total_warnings > 0:
+                console.print(f"\n  [yellow]{report.total_warnings} warnings — review before proceeding.[/yellow]")
+            else:
+                console.print(f"\n  [green]No issues found.[/green]")
+            # Persist review report as stage_data
+            try:
+                ede_dir = __import__('pathlib').Path('.ede')
+                if ede_dir.exists():
+                    pdb = Persistence(str(ede_dir / 'state.db'))
+                    pdb.write_audit(task_id, "review_complete", f"Errors:{report.total_errors} Warnings:{report.total_warnings}")
+            except Exception:
+                pass
+        return _run
+
+    def _make_merge_fn(phase):
+        def _run(task_id, p):
+            console.print(f"  [bold]Merge check: verifying all gates...[/bold]")
+            try:
+                ede_dir = __import__('pathlib').Path('.ede')
+                if ede_dir.exists():
+                    pdb = Persistence(str(ede_dir / 'state.db'))
+                    logs = pdb.get_audit_logs(task_id)
+                    failed_gates = [l for l in logs if "gates_failed" in l.get("action", "")]
+                    if failed_gates:
+                        console.print(f"  [red]X[/red] {len(failed_gates)} gate failure(s) in audit log — merge blocked.")
+                    else:
+                        console.print(f"  [green]OK[/green] All gates passed. Ready to merge.")
+                    pdb.write_audit(task_id, "merge_verified", f"Gates checked: {len(logs)} audit entries")
+            except Exception:
+                console.print(f"  [yellow]!![/yellow] Could not verify gates (no .ede/ directory).")
+        return _run
+
+    engine.register_stage(Stage(Phase.REVIEW, prerequisites=[], gates=[], run_fn=_make_review_fn(Phase.REVIEW)))
+    engine.register_stage(Stage(Phase.MERGE, prerequisites=[], gates=[], run_fn=_make_merge_fn(Phase.MERGE)))
 
     # Inject accuracy reviewer for post-code checks
     llm = _get_llm()
@@ -211,6 +270,8 @@ def task_create(
     description: str,
     start_at: str = typer.Option("spec", "--start-at", "-s",
         help="Start at phase: spec, design, plan, code, test, review, merge"),
+    depends_on: str = typer.Option("", "--depends-on", "-d",
+        help="Task ID that must complete before this one starts"),
 ) -> None:
     """Create a new task, optionally starting from a later phase."""
     valid = {"spec", "design", "plan", "code", "test", "review", "merge"}
@@ -221,7 +282,7 @@ def task_create(
     engine = _get_engine()
     task_id = str(uuid.uuid4())[:8]
     project_id = _get_first_project_id(engine.db)
-    engine.db.create_task(task_id, project_id, description, start_phase=start_at)
+    engine.db.create_task(task_id, project_id, description, start_phase=start_at, depends_on=depends_on)
 
     # Auto-complete audit trail for skipped phases
     phases = ["spec", "design", "plan", "code", "test", "review", "merge"]
@@ -231,6 +292,8 @@ def task_create(
 
     tui.render_task_created(task_id, description)
     console.print(f"  Starting at: [bold]{start_at}[/bold]{' (skipped '+', '.join(skipped)+')' if skipped else ''}")
+    if depends_on:
+        console.print(f"  Depends on: [bold cyan]{depends_on}[/bold cyan]")
 
 
 @task_app.command("run")

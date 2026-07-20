@@ -126,7 +126,7 @@ class Persistence:
     # ── Task ──────────────────────────────────────────
 
     def create_task(self, task_id: str, project_id: str, description: str = "",
-                    start_phase: str = "spec") -> None:
+                    start_phase: str = "spec", **kwargs) -> None:
         """Create a new task, optionally at a later phase."""
         import json
         valid = {"spec", "design", "plan", "code", "test", "review", "merge"}
@@ -134,10 +134,11 @@ class Persistence:
             start_phase = "spec"
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                """INSERT INTO task (task_id, project_id, phase, status, stage_data)
-                   VALUES (?, ?, ?, 'pending', ?)""",
+                """INSERT INTO task (task_id, project_id, phase, status, stage_data, depends_on)
+                   VALUES (?, ?, ?, 'pending', ?, ?)""",
                 (task_id, project_id, start_phase,
-                 json.dumps({"description": description}, ensure_ascii=False)),
+                 json.dumps({"description": description}, ensure_ascii=False),
+                 kwargs.get("depends_on", "")),
             )
             conn.commit()
 
@@ -243,6 +244,16 @@ class Persistence:
                 return {"valid": False, "broken_at": row["id"], "expected": expected, "stored": stored}
             prev_hash = stored
         return {"valid": True, "broken_at": None}
+
+    def get_dependent_tasks(self, depends_on_id: str) -> list[dict]:
+        """Get tasks that depend on the given task id."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM task WHERE depends_on=? ORDER BY created_at",
+                (depends_on_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def get_audit_logs(self, task_id: str) -> list[dict]:
         with sqlite3.connect(self.db_path) as conn:

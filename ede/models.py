@@ -259,6 +259,7 @@ CREATE TABLE IF NOT EXISTS task (
     phase       TEXT NOT NULL DEFAULT 'spec',
     status      TEXT NOT NULL DEFAULT 'pending',
     stage_data  TEXT DEFAULT '{}',
+    depends_on  TEXT DEFAULT '',
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (project_id) REFERENCES project(project_id)
