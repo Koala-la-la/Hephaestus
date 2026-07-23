@@ -2,7 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-73%20passed-brightgreen.svg)](tests/) [![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-73%20passed-brightgreen.svg)](tests/) [![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](CHANGELOG.md)
 
 **EDE** is a CLI tool that enforces engineering discipline throughout the full-stack development lifecycle. Unlike general-purpose AI agents that can be "persuaded" to skip steps, EDE implements **hard-constraint pipelines** — you cannot merge code without passing through spec → design → plan → code → test → review → merge.
 

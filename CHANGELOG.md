@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0 (2026-07-23)
+
+### 异步化重构（spec C-006）
+- GateEngine：`check`/`fix`/`run_gate` 改为 async；`run_gates` 通过 `asyncio.gather` 并发执行
+- StageEngine：`advance`/`confirm` 及内部状态迁移全部 async
+- builtin gates：`subprocess.run` → `asyncio.create_subprocess_exec`
+- CLI：新增 `ede task list`、`ede audit`（含审计链完整性校验）；async 调用包装为 `asyncio.run`
+- 版本号对齐：`pyproject.toml` / `ede/__init__.py` / README badge 统一为 0.3.0
+
+### 清理
+- 移除 `tests/test_gates.py` 中硬编码的 `C:\obsidian\KB\weiwei` 路径，改用临时项目 / `PROJECT_ROOT`
+- 移除 `tests/test_gate_engine.py` 重复的 `import asyncio`
+
 ## v0.2.0 (2026-07-20)
 
 ### P0 — Bug 修复
