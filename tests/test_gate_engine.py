@@ -1,9 +1,9 @@
 """Unit tests for Gate Engine — L1/L2/L3 retry logic."""
 
+import asyncio
 import sys
-import asyncio
 from pathlib import Path
-import asyncio
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.gate_engine import GateEngine, Gate, GateLevel
