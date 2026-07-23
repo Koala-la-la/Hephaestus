@@ -1,9 +1,6 @@
-"""Unit tests for builtin gates."""
+"""Unit tests for builtin gates (async)."""
 
-import sys
-import os
-import tempfile
-import shutil
+import sys, os, tempfile, shutil, asyncio
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -19,8 +16,8 @@ def test_lint_gate_passes_on_clean_code():
     try:
         with open(os.path.join(tmp, "ok.py"), "w", encoding="utf-8") as f:
             f.write("def foo(): return 42\n")
-        gate = make_lint_gate(tmp)
-        result = gate.check()
+        gate = asyncio.run(make_lint_gate(tmp))
+        result = asyncio.run(gate.check())
         assert result.passed
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -32,18 +29,17 @@ def test_lint_gate_fails_on_syntax_error():
     try:
         with open(os.path.join(tmp, "bad.py"), "w", encoding="utf-8") as f:
             f.write("def foo(:\n    return 42\n")
-        gate = make_lint_gate(tmp)
-        result = gate.check()
+        gate = asyncio.run(make_lint_gate(tmp))
+        result = asyncio.run(gate.check())
         assert not result.passed
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_test_gate_runs_on_this_project():
-    """Test gate runs pytest on the EDE project and passes."""
-    gate = make_test_gate(r"C:\obsidian\KB\weiwei")
-    result = gate.check()
-    # Gate runs pytest on full project — may be slow, just verify no crash
+    """Test gate runs pytest on the EDE project."""
+    gate = asyncio.run(make_test_gate(r"C:\obsidian\KB\weiwei"))
+    result = asyncio.run(gate.check())
     assert result.detail != "", "Gate returned empty detail"
 
 

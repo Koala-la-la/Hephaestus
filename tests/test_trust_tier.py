@@ -1,17 +1,13 @@
-"""Unit tests for Trust Tier — T0 through T3 behavior."""
+"""Unit tests for Trust Tier — T0 through T3 behavior (async)."""
 
-import sys
-import os
-import tempfile
-import shutil
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import sys, os, tempfile, shutil, asyncio
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parent.parent))
 
 from ede.context_engine import TrustConfig
 from ede.stage_engine import StageEngine, Stage
-from ede.gate_engine import GateEngine, Gate, GateLevel
+from ede.gate_engine import GateEngine
 from ede.persistence import Persistence
-from ede.models import Phase, TaskStatus, GateResult
+from ede.models import Phase, TaskStatus
 
 
 def _setup_engine(tmpdir: str, tier: str) -> StageEngine:
@@ -24,8 +20,6 @@ def _setup_engine(tmpdir: str, tier: str) -> StageEngine:
         engine.register_stage(Stage(phase))
     return engine
 
-
-# ── TrustConfig unit tests ────────────────────────────
 
 def test_t0_blocks_human_checkpoint():
     tc = TrustConfig(tier="T0")
@@ -66,26 +60,21 @@ def test_invalid_tier_defaults_to_t1():
 
 
 def test_max_retries_by_tier():
-    tc0 = TrustConfig(tier="T0")
-    tc2 = TrustConfig(tier="T2")
-    tc3 = TrustConfig(tier="T3")
-    assert tc0.max_auto_retries("code", 1) == 2  # T0 L1
-    assert tc0.max_auto_retries("code", 2) == 1  # T0 L2
-    assert tc0.max_auto_retries("code", 3) == 0  # T0 L3
-    assert tc2.max_auto_retries("code", 1) == 3  # T2 L1
-    assert tc2.max_auto_retries("code", 3) == 1  # T2 L3 gets 1 retry
-    assert tc3.max_auto_retries("code", 2) == 3  # T3 L2
+    assert TrustConfig(tier="T0").max_auto_retries("code", 1) == 2
+    assert TrustConfig(tier="T0").max_auto_retries("code", 2) == 1
+    assert TrustConfig(tier="T0").max_auto_retries("code", 3) == 0
+    assert TrustConfig(tier="T2").max_auto_retries("code", 1) == 3
+    assert TrustConfig(tier="T2").max_auto_retries("code", 3) == 1
+    assert TrustConfig(tier="T3").max_auto_retries("code", 2) == 3
 
-
-# ── StageEngine integration tests ─────────────────────
 
 def test_t1_skips_spec_checkpoint():
     tmp = tempfile.mkdtemp(prefix="ede_tt_")
     try:
         engine = _setup_engine(tmp, "T1")
         engine.db.create_task("t1", "p1", "t1 test")
-        r = engine.advance("t1")
-        assert r["state"] == "done"  # T1 auto-passes spec checkpoint
+        r = asyncio.run(engine.advance("t1"))
+        assert r["state"] == "done"
         assert r["phase"] == "spec"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -96,8 +85,8 @@ def test_t0_blocks_spec_checkpoint():
     try:
         engine = _setup_engine(tmp, "T0")
         engine.db.create_task("t2", "p1", "t2 test")
-        r = engine.advance("t2")
-        assert r["state"] == "wait_user"  # T0 blocks
+        r = asyncio.run(engine.advance("t2"))
+        assert r["state"] == "wait_user"
         assert r["phase"] == "spec"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -108,22 +97,16 @@ def test_t2_auto_flows_through_all_checkpoints():
     try:
         engine = _setup_engine(tmp, "T2")
         engine.db.create_task("t3", "p1", "full flow")
-
-        r = engine.advance("t3")
-        # T2: all checkpoints auto-pass, should reach code or beyond
+        r = asyncio.run(engine.advance("t3"))
         phases = {r["phase"]}
-        # Keep advancing until terminal or stuck
         for _ in range(10):
             task = engine.db.get_task("t3")
             if task["status"] == "done":
-                r = engine.advance("t3")
+                r = asyncio.run(engine.advance("t3"))
                 if r.get("state") == "terminal":
                     break
                 phases.add(r.get("phase", "?"))
-
-        # Should have traversed multiple phases without human intervention
         assert len(phases) >= 3
-        # Verify audit log recorded auto_checkpoint
         logs = engine.db.get_audit_logs("t3")
         auto_logs = [l for l in logs if "auto_checkpoint" in l.get("action", "")]
         assert len(auto_logs) >= 1
@@ -143,7 +126,6 @@ def test_t1_override_merge_to_t0():
         for phase in Phase:
             engine.register_stage(Stage(phase))
         engine.db.create_task("t4", "p1", "override test")
-
         assert engine.trust.effective_tier("code") == "T1"
         assert engine.trust.effective_tier("merge") == "T0"
         assert engine.trust.should_block_human_checkpoint("merge")
