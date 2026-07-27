@@ -206,6 +206,18 @@ class Persistence:
                 )
             conn.commit()
 
+    # ── GateResult ───────────────────────────────────
+
+    def insert_gate_result(self, task_id: str, gate_name: str,
+                          passed: bool, detail: str = "") -> None:
+        """Persist a gate check result for auditability (spec §5.2)."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "INSERT INTO gate_result (task_id, gate_name, passed, detail) VALUES (?, ?, ?, ?)",
+                (task_id, gate_name, 1 if passed else 0, detail),
+            )
+            conn.commit()
+
     # ── Audit ─────────────────────────────────────────
 
     def write_audit(self, task_id: str, action: str, detail: str) -> None:

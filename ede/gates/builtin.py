@@ -3,8 +3,9 @@
 v0.3: All check/fix functions are now async.
 """
 
-import subprocess
+import asyncio
 import os
+import subprocess
 from pathlib import Path
 
 from ede.gate_engine import Gate, GateLevel, GateEngine
@@ -16,12 +17,18 @@ async def make_test_gate(project_root: str = ".") -> Gate:
 
     async def check() -> GateResult:
         try:
-            proc = await __import__('asyncio').create_subprocess_exec(
+            proc = await asyncio.create_subprocess_exec(
                 "python", "-m", "pytest", "tests/", "-q", "--tb=no",
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 cwd=project_root,
             )
-            stdout, _ = await proc.communicate()
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return GateResult(task_id="", gate_name="test", passed=False,
+                                  detail="pytest timed out (180s)")
             passed = proc.returncode == 0
             lines = stdout.decode().split("\n")
             detail = lines[-2] if len(lines) >= 2 else str(proc.returncode)
@@ -75,12 +82,18 @@ async def make_coverage_gate(project_root: str = ".", threshold: int = 80) -> Ga
 
     async def check() -> GateResult:
         try:
-            proc = await __import__('asyncio').create_subprocess_exec(
+            proc = await asyncio.create_subprocess_exec(
                 "python", "-m", "pytest", "--cov=.", "--cov-report=term", "-q",
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 cwd=project_root,
             )
-            stdout, _ = await proc.communicate()
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                return GateResult(task_id="", gate_name="coverage", passed=False,
+                                  detail="coverage run timed out (120s)")
             coverage = 0
             for line in stdout.decode().split("\n"):
                 if "TOTAL" in line and "%" in line:

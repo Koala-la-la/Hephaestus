@@ -89,20 +89,14 @@ def _get_engine() -> StageEngine:
     llm = _get_llm()
     ctx_engine = ContextEngine(".")
     def _make_run_fn(phase):
-        def _run(task_id, p):
+        async def _run(task_id, p):
             if llm is None:
                 return
-            import asyncio
             ctx = ctx_engine.resolve()
             sp = DeepSeekProvider.build_system_prompt(ctx)
             msgs = [ChatMessage(role="system", content=sp),
                     ChatMessage(role="user", content=f"Phase: {phase.value}, task: {task_id}")]
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(llm.chat(msgs, thinking_budget=thinking_for_phase(phase)))
+            result = await llm.chat(msgs, thinking_budget=thinking_for_phase(phase))
             console.print(f"  [dim]LLM response: {result.output_tokens} tokens[/dim]")
             # Parse and persist change log + change entries
             if result.content and "Change Summary" in result.content:
@@ -128,10 +122,9 @@ def _get_engine() -> StageEngine:
     engine.register_stage(Stage(Phase.TEST, prerequisites=[], gates=["test", "coverage"], run_fn=_make_run_fn(Phase.TEST)))
     # Special run_fns for REVIEW (3-parallel reviewers) and MERGE (gate verification)
     def _make_review_fn(phase):
-        def _run(task_id, p):
+        async def _run(task_id, p):
             if llm is None:
                 return
-            import asyncio
             reviewer_llm = DeepSeekProvider(api_key=llm.api_key, model=llm.model, base_url=llm.base_url)
             orchestrator = ReviewerOrchestrator(reviewer_llm)
             try:
@@ -141,12 +134,7 @@ def _get_engine() -> StageEngine:
             except Exception:
                 diff = "[diff unavailable]"
             spec_text = ctx_engine.resolve()
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-            report = loop.run_until_complete(orchestrator.review(task_id, spec_text, diff))
+            report = await orchestrator.review(task_id, spec_text, diff)
             console.print(f"\n  [bold]Review Report[/bold] ({report.total_errors} errors, {report.total_warnings} warnings)")
             for f in report.findings:
                 icon = {"error": "[red]X[/red]", "warning": "[yellow]!![/yellow]", "info": "[dim]i[/dim]"}.get(f.severity, "?")
@@ -167,7 +155,7 @@ def _get_engine() -> StageEngine:
         return _run
 
     def _make_merge_fn(phase):
-        def _run(task_id, p):
+        async def _run(task_id, p):
             console.print(f"  [bold]Merge check: verifying all gates...[/bold]")
             try:
                 ede_dir = __import__('pathlib').Path('.ede')

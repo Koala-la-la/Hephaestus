@@ -178,6 +178,11 @@ class DeepSeekProvider:
                    thinking_budget: str = "auto") -> ChatResult:
         """Send a chat completion request to DeepSeek API.
 
+        Retries only on rate-limit (429) / 5xx / transport errors; fails fast
+        on other 4xx (e.g. 400 bad request, 401 unauthorized). Thinking budget
+        is sent only for reasoner models (deepseek-reasoner); other models
+        reject the ``thinking`` field with a 400, so it is omitted.
+
         Args:
             messages: conversation history
             thinking_budget: "off"|"low"|"medium"|"high"|"max"|"auto"
@@ -188,7 +193,6 @@ class DeepSeekProvider:
         if not self.api_key:
             return ChatResult(content="[No API key configured. Set DEEPSEEK_API_KEY.]")
 
-        # Build payload
         payload = {
             "model": self.model,
             "messages": [
@@ -197,59 +201,48 @@ class DeepSeekProvider:
             "stream": False,
         }
 
-        # Add thinking budget if enabled
+        # Thinking budget only applies to reasoner models (spec §5.4); other
+        # models reject the field, so omit it rather than risk a 400.
         tokens = THINKING_BUDGETS.get(thinking_budget)
-        if tokens is not None:
+        if tokens is not None and "reasoner" in self.model.lower():
             payload["thinking"] = {"type": "enabled", "budget_tokens": tokens}
 
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.base_url}/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                )
+        url = f"{self.base_url}/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        retryable = {429, 500, 502, 503, 504}
+
+        last_error = "unknown"
+        for attempt in range(5):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                if response.status_code in retryable:
+                    last_error = f"HTTP {response.status_code}"
+                    if attempt < 4:
+                        await asyncio.sleep(min(1 << attempt, 30))
+                    continue
                 response.raise_for_status()
                 data = response.json()
-
                 choice = data["choices"][0]
                 usage = data.get("usage", {})
-
                 return ChatResult(
                     content=choice["message"]["content"],
                     thinking_tokens=usage.get("completion_tokens_details", {}).get("thinking_tokens", 0),
                     output_tokens=usage.get("completion_tokens", 0),
                     model=data.get("model", self.model),
                 )
-        except httpx.HTTPError as e:
-            last_error = e
-            for attempt in range(1, 5):
-                delay = min(1 << attempt, 30)
-                await asyncio.sleep(delay)
-                try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        response = await client.post(
-                            f"{self.base_url}/v1/chat/completions",
-                            headers={"Authorization": f"Bearer {self.api_key}",
-                                     "Content-Type": "application/json"},
-                            json=payload,
-                        )
-                        response.raise_for_status()
-                        data = response.json()
-                        choice = data["choices"][0]
-                        usage = data.get("usage", {})
-                        return ChatResult(
-                            content=choice["message"]["content"],
-                            thinking_tokens=usage.get("completion_tokens_details", {}).get("thinking_tokens", 0),
-                            output_tokens=usage.get("completion_tokens", 0),
-                            model=data.get("model", self.model),
-                        )
-                except httpx.HTTPError as retry_err:
-                    last_error = retry_err
-            return ChatResult(content=f"[API Error after 5 attempts: {last_error}]")
+            except httpx.HTTPStatusError as e:
+                # Non-retryable 4xx — fail fast, do not retry.
+                return ChatResult(content=f"[API Error: HTTP {e.response.status_code}]")
+            except (httpx.TransportError, httpx.TimeoutException) as e:
+                last_error = str(e)
+                if attempt < 4:
+                    await asyncio.sleep(min(1 << attempt, 30))
+                continue
+        return ChatResult(content=f"[API Error after 5 attempts: {last_error}]")
 
     def estimate_tokens(self, messages: list[ChatMessage]) -> int:
         """Rough token estimate: ~4 chars per token for Chinese/English mixed."""

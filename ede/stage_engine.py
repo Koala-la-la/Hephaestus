@@ -19,7 +19,7 @@ class Stage:
     phase: Phase
     prerequisites: list[str] = field(default_factory=list)
     gates: list[str] = field(default_factory=list)
-    run_fn: Optional[Callable] = None
+    run_fn: Optional[Callable[..., Awaitable[None]]] = None
 
     def has_human_checkpoint(self) -> bool:
         return StateMachine.needs_human_checkpoint(self.phase)
@@ -102,6 +102,8 @@ class StageEngine:
 
         if stage.prerequisites:
             results = await self.gates.run_gates(stage.prerequisites)
+            for r in results:
+                self.db.insert_gate_result(task_id, r.gate_name, r.passed, r.detail)
             failed = [r for r in results if not r.passed]
             if failed:
                 self.db.update_task(task_id, status=TaskStatus.BLOCKED.value)
@@ -112,7 +114,7 @@ class StageEngine:
         self.db.update_task(task_id, status=TaskStatus.RUNNING.value, updated_at=now)
         self.db.write_audit(task_id, "stage_running", phase.value)
         if stage.run_fn is not None:
-            stage.run_fn(task_id, phase)
+            await stage.run_fn(task_id, phase)
         return await self._complete_stage(task_id, phase, stage, _retry_depth)
 
     async def _complete_stage(self, task_id: str, phase: Phase, stage: Stage,
@@ -121,6 +123,8 @@ class StageEngine:
 
         if stage.gates:
             results = await self.gates.run_gates(stage.gates)
+            for r in results:
+                self.db.insert_gate_result(task_id, r.gate_name, r.passed, r.detail)
             failed = [r for r in results if not r.passed]
             if failed:
                 l3_failures = [f for f in failed if self._gate_level(f.gate_name) == 3]
