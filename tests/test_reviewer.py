@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ede.reviewer import (
     Reviewer, ReviewFinding, ReviewReport, ReviewerOrchestrator,
 )
-from ede.llm_adapter import DeepSeekProvider, ChatMessage, ChatResult
+from ede.llm_adapter import GLMProvider, ChatMessage, ChatResult
 
 
 def _mock_provider():
@@ -57,7 +57,7 @@ def test_reviewer_definition():
 
 def test_orchestrator_has_defaults():
     """Orchestrator registers 3 default reviewers on init."""
-    provider = DeepSeekProvider(api_key="mock")
+    provider = GLMProvider(api_key="mock")
     orch = ReviewerOrchestrator(provider)
     assert len(orch._reviewers) == 3
     names = [r.name for r in orch._reviewers]
@@ -68,7 +68,7 @@ def test_orchestrator_has_defaults():
 
 def test_parse_pipe_format():
     """_parse_findings handles pipe-separated output."""
-    provider = DeepSeekProvider(api_key="mock")
+    provider = GLMProvider(api_key="mock")
     orch = ReviewerOrchestrator(provider)
     reviewer = orch._reviewers[0]
     content = "warning|file.py|Missing docstring\nerror|main.py|Unhandled error"
@@ -81,7 +81,7 @@ def test_parse_pipe_format():
 
 def test_parse_plain_text():
     """_parse_findings catches unstructured warning lines."""
-    provider = DeepSeekProvider(api_key="mock")
+    provider = GLMProvider(api_key="mock")
     orch = ReviewerOrchestrator(provider)
     reviewer = orch._reviewers[0]
     content = "This code has an issue with error handling"
@@ -92,7 +92,7 @@ def test_parse_plain_text():
 
 def test_add_custom_reviewer():
     """Custom reviewers can be registered."""
-    provider = DeepSeekProvider(api_key="mock")
+    provider = GLMProvider(api_key="mock")
     orch = ReviewerOrchestrator(provider)
     orch.add_reviewer(Reviewer(name="custom", dimension="Custom", system_prompt="", review_prompt_template=""))
     assert len(orch._reviewers) == 4

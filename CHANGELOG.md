@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.0 (2026-07-28)
+
+### 模型切换：DeepSeek → GLM-5.2（智谱）
+- `DeepSeekProvider` → `GLMProvider`，默认 base_url `https://open.bigmodel.cn/api/paas/v4`，默认模型 `glm-5.2`
+- 环境变量 `DEEPSEEK_*` → `GLM_*`（`GLM_API_KEY` / `GLM_BASE_URL` / `GLM_MODEL`）
+- thinking 参数改 opt-in（`GLM_ENABLE_THINKING=1`），默认不发以避免非推理调用 400；具体参数形态待对照智谱 API 文档确认
+- README / pyproject / p0_smoke 同步更新
+
+### 约束瘦身（按"约束∝后果"审计：A 类砍、B 类加固）
+- coverage 门禁降为非阻断（informational，仅审计）——覆盖率是噪声指标，不卡人
+- 3-way 散文 review 改为 T0-only——accuracy reviewer（B 类，CODE 阶段）才是有牙的
+- `ede init` 默认 trust tier T1 → T2（A 类 process gate 默认更信任模型）
+- 审计链加固：空 `integrity_hash` 不再被跳过（视为 broken），堵住 null-hash 绕过
+- 接通 `upgrade_if_inaccurate`：accuracy reviewer 判定 inaccurate 时自动升级 ChangeEntry 的 effective_risk（spec §AC-007）
+
+### 待办（下一轮）
+- AC-003 `--bypass <gate>`（分级：lint/3-way 可绕，test/accuracy/merge 不可绕）
+- merge 校验从 grep 升级为真校验
+
 ## v0.3.0 (2026-07-23)
 
 ### 异步化重构（spec C-006）

@@ -252,7 +252,7 @@ class Persistence:
             stored = row["integrity_hash"] or ""
             combined = (prev_hash + row["action"] + row["detail"]).encode("utf-8")
             expected = hashlib.sha256(combined).hexdigest()[:16]
-            if stored and stored != expected:
+            if not stored or stored != expected:
                 return {"valid": False, "broken_at": row["id"], "expected": expected, "stored": stored}
             prev_hash = stored
         return {"valid": True, "broken_at": None}

@@ -127,9 +127,9 @@ def test_disagreement_evidence_crud():
 def test_accuracy_reviewer_parse_drops_bad_findings():
     """Findings without line_number or diff_quote are dropped."""
     from ede.reviewer import ReviewerOrchestrator, Reviewer
-    from ede.llm_adapter import DeepSeekProvider
+    from ede.llm_adapter import GLMProvider
 
-    orch = ReviewerOrchestrator(DeepSeekProvider(api_key="mock"))
+    orch = ReviewerOrchestrator(GLMProvider(api_key="mock"))
     reviewer = Reviewer(name="accuracy", dimension="Accuracy",
                         system_prompt="", review_prompt_template="")
 

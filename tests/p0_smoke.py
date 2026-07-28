@@ -1,9 +1,9 @@
-"""P0 Smoke Test — Real DeepSeek API end-to-end verification.
+"""P0 Smoke Test — Real GLM API end-to-end verification.
 
 Usage:
-  1. Set your API key:  export DEEPSEEK_API_KEY=sk-xxx
-  2. (Optional) Relay:  export DEEPSEEK_BASE_URL=https://your-relay.com
-  3. (Optional) Model:  export DEEPSEEK_MODEL=deepseek-chat
+  1. Set your API key:  export GLM_API_KEY=your-zhipu-api-key
+  2. (Optional) Relay:  export GLM_BASE_URL=https://your-relay.com
+  3. (Optional) Model:  export GLM_MODEL=glm-5.2
   4. Run:               python tests/p0_smoke.py
 
 This script NEVER prints your API key.
@@ -13,7 +13,7 @@ import os, sys, asyncio, tempfile, shutil
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ede.llm_adapter import DeepSeekProvider, ChatMessage, thinking_for_phase, THINKING_BUDGETS
+from ede.llm_adapter import GLMProvider, ChatMessage, thinking_for_phase, THINKING_BUDGETS
 from ede.models import Phase, TaskStatus
 from ede.change_visibility import parse_change_summary
 
@@ -24,16 +24,16 @@ SKIP = "\033[93mSKIP\033[0m"
 
 def check_api():
     """Verify API key is set (don't print it)."""
-    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    key = os.environ.get("GLM_API_KEY", "")
     if not key:
-        print(f"  {SKIP} — DEEPSEEK_API_KEY not set")
+        print(f"  {SKIP} — GLM_API_KEY not set")
         return None
-    base = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    base = os.environ.get("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+    model = os.environ.get("GLM_MODEL", "glm-5.2")
     print(f"  API key: ****{key[-4:]}")
     print(f"  Base URL: {base}")
     print(f"  Model: {model}")
-    return DeepSeekProvider(api_key=key, base_url=base, model=model)
+    return GLMProvider(api_key=key, base_url=base, model=model)
 
 
 async def test_connectivity(provider):
@@ -65,7 +65,7 @@ async def test_code_generation(provider):
     """Simulate a code generation task with structured output."""
     print("\n[3] Code generation + change visibility test...")
     msgs = [
-        ChatMessage(role="system", content=DeepSeekProvider.build_system_prompt(
+        ChatMessage(role="system", content=GLMProvider.build_system_prompt(
             "project:\n  type: cli_tool\n  frontend: none\n  backend: python"
         )),
         ChatMessage(role="user", content="""Write a Python function `add(a, b)` that returns the sum.

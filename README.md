@@ -19,7 +19,7 @@ General-purpose AI agents (CodeWhale, Claude Code, Codex) operate on **conversat
 | Human checkpoints | Can be skipped | System-level blocking state |
 | Change visibility | Raw diff | Summary + intent groups + risk labels |
 | Error memory | Lost between sessions | Auto-written to `context.yaml` |
-| Cost efficiency | GPT-4 rates | DeepSeek-optimized (prefix cache, thinking budget) |
+| Cost efficiency | GPT-4 rates | GLM-optimized (prefix cache, thinking budget) |
 
 ## Quick Start
 
@@ -28,11 +28,11 @@ General-purpose AI agents (CodeWhale, Claude Code, Codex) operate on **conversat
 pip install ede
 
 # Set your API key (never share this!)
-export DEEPSEEK_API_KEY="sk-xxx"
+export GLM_API_KEY="your-zhipu-api-key"
 
 # Optional: relay / custom model
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"
-export DEEPSEEK_MODEL="deepseek-chat"
+export GLM_BASE_URL="https://open.bigmodel.cn/api/paas/v4"
+export GLM_MODEL="glm-5.2"
 
 # Initialize a project
 cd your-project
@@ -94,7 +94,7 @@ Every code change produces:
 - high: [core logic — MUST REVIEW]
 ```
 
-### DeepSeek-Optimized
+### GLM-Optimized
 
 - Prefix cache: stable Constitution in prompt prefix layer (90% cost savings on cache hits)
 - Thinking budget: automatic per-phase selection (spec→low, code→high, merge→off)
@@ -110,7 +110,7 @@ Corrected mistakes don't repeat. After each task, run `ede refine` to automatica
 CLI (Typer) → Stage Engine (7-phase pipeline)
                 ├── Gate Engine (L1/L2/L3)
                 ├── Context Engine (project conventions)
-                ├── LLM Adapter (DeepSeekProvider)
+                ├── LLM Adapter (GLMProvider)
                 ├── Change Visibility (summary parsing)
                 ├── Reviewer Orchestrator (3-way parallel)
                 └── Self-Refinement (error → update)

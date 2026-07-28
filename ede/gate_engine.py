@@ -30,6 +30,7 @@ class Gate:
     check: Callable[[], Awaitable[GateResult]]  # async check function
     fix: Optional[Callable[[], Awaitable[bool]]] = None  # optional async auto-fix
     max_retries: int = 0
+    blocking: bool = True  # False = informational only, never blocks (spec §6.1)
 
 
 class GateEngine:

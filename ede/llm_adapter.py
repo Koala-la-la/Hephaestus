@@ -1,7 +1,7 @@
-"""LLM Adapter — DeepSeek API integration with thinking budget and prefix cache.
+"""LLM Adapter — GLM API integration with thinking budget and prefix cache.
 
 Spec §5.4:
-  - DeepSeekProvider wraps httpx for DeepSeek API
+  - GLMProvider wraps httpx for GLM API
   - Thinking budget: off/low/medium/high/max
   - Prefix cache: stable constitution + conventions in system prompt
   - Phase-aware budget selection
@@ -35,7 +35,7 @@ class ChatResult:
 
 
 class LLMProvider(Protocol):
-    """Minimal provider protocol — implement for DeepSeek, OpenAI, etc."""
+    """Minimal provider protocol — implement for GLM, OpenAI, etc."""
 
     async def chat(self, messages: list[ChatMessage],
                    thinking_budget: str = "auto") -> ChatResult:
@@ -71,9 +71,9 @@ def thinking_for_phase(phase: Phase) -> str:
     return PHASE_THINKING.get(phase, "off")
 
 
-# ── DeepSeek Provider ─────────────────────────────────
+# ── GLM Provider ─────────────────────────────────
 
-DEEPSEEK_SYSTEM_PROMPT = """You are EDE, the Engineering Discipline Enforcer.
+GLM_SYSTEM_PROMPT = """You are EDE, the Engineering Discipline Enforcer.
 
 ## Hard Constraints (cannot be bypassed)
 1. Never modify code without a confirmed spec and plan.
@@ -161,27 +161,29 @@ Rules:
 }
 
 
-class DeepSeekProvider:
-    """DeepSeek API provider with thinking budget control."""
+class GLMProvider:
+    """GLM API provider with thinking budget control."""
 
-    DEFAULT_BASE_URL = "https://api.deepseek.com"
+    DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+    DEFAULT_MODEL = "glm-5.2"
 
     def __init__(self, api_key: Optional[str] = None, model: str = "",
                  base_url: str = ""):
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
-        self.model = model or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+        self.api_key = api_key or os.environ.get("GLM_API_KEY", "")
+        self.model = model or os.environ.get("GLM_MODEL", GLMProvider.DEFAULT_MODEL)
         self.base_url = base_url or os.environ.get(
-            "DEEPSEEK_BASE_URL", DeepSeekProvider.DEFAULT_BASE_URL
+            "GLM_BASE_URL", GLMProvider.DEFAULT_BASE_URL
         ).rstrip("/")
 
     async def chat(self, messages: list[ChatMessage],
                    thinking_budget: str = "auto") -> ChatResult:
-        """Send a chat completion request to DeepSeek API.
+        """Send a chat completion request to GLM API.
 
         Retries only on rate-limit (429) / 5xx / transport errors; fails fast
         on other 4xx (e.g. 400 bad request, 401 unauthorized). Thinking budget
-        is sent only for reasoner models (deepseek-reasoner); other models
-        reject the ``thinking`` field with a 400, so it is omitted.
+        is opt-in for GLM (set GLM_ENABLE_THINKING=1); the exact ``thinking``
+        param shape should be confirmed against the Zhipu API docs, so by
+        default no thinking field is sent (avoids 400s on non-reasoning calls).
 
         Args:
             messages: conversation history
@@ -191,7 +193,7 @@ class DeepSeekProvider:
             ChatResult with content and token counts.
         """
         if not self.api_key:
-            return ChatResult(content="[No API key configured. Set DEEPSEEK_API_KEY.]")
+            return ChatResult(content="[No API key configured. Set GLM_API_KEY.]")
 
         payload = {
             "model": self.model,
@@ -201,13 +203,15 @@ class DeepSeekProvider:
             "stream": False,
         }
 
-        # Thinking budget only applies to reasoner models (spec §5.4); other
-        # models reject the field, so omit it rather than risk a 400.
-        tokens = THINKING_BUDGETS.get(thinking_budget)
-        if tokens is not None and "reasoner" in self.model.lower():
-            payload["thinking"] = {"type": "enabled", "budget_tokens": tokens}
+        # Thinking is opt-in for GLM (spec §5.4): the exact `thinking` param
+        # shape must be confirmed against the Zhipu API docs, so by default we
+        # send nothing. Enable via GLM_ENABLE_THINKING=1 and verify the shape.
+        if os.environ.get("GLM_ENABLE_THINKING") and thinking_budget != "off":
+            tokens = THINKING_BUDGETS.get(thinking_budget)
+            if tokens is not None:
+                payload["thinking"] = {"type": "enabled", "max_tokens": tokens}
 
-        url = f"{self.base_url}/v1/chat/completions"
+        url = f"{self.base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -256,7 +260,7 @@ class DeepSeekProvider:
     @staticmethod
     def build_system_prompt(context_yaml: str = "") -> str:
         """Build the system prompt prefix with stable constitution + project context."""
-        prompt = DEEPSEEK_SYSTEM_PROMPT
+        prompt = GLM_SYSTEM_PROMPT
         if context_yaml:
             prompt += f"\n\n## Project Context\n```yaml\n{context_yaml}\n```"
         return prompt

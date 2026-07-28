@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ede.llm_adapter import DeepSeekProvider, ChatMessage
+from ede.llm_adapter import GLMProvider, ChatMessage
 from ede.models import Phase
 
 
@@ -67,7 +67,7 @@ class ReviewReport:
 class ReviewerOrchestrator:
     """Spawns multiple reviewers in parallel and aggregates findings."""
 
-    def __init__(self, provider: DeepSeekProvider):
+    def __init__(self, provider: GLMProvider):
         self.provider = provider
         self._reviewers: list[Reviewer] = []
         self._register_defaults()

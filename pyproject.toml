@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ede"
 version = "0.3.0"
-description = "Engineering Discipline Enforcer — DeepSeek-optimized agentic engineering CLI"
+description = "Engineering Discipline Enforcer — GLM-optimized agentic engineering CLI"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"

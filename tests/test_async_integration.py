@@ -4,7 +4,7 @@ Covers:
   - P0: an async stage run_fn that awaits an async LLM call must work inside
     asyncio.run(advance()). The old sync ``loop.run_until_complete`` pattern
     raised ``RuntimeError: This event loop is already running`` once a real
-    DEEPSEEK_API_KEY was configured (the unit suite never caught it because
+    GLM_API_KEY was configured (the unit suite never caught it because
     run_fn early-returns when no key is set).
   - P1: gate check results are persisted to the ``gate_result`` table (spec §5.2).
 """

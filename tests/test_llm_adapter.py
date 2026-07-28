@@ -5,9 +5,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ede.llm_adapter import (
-    DeepSeekProvider, ChatMessage, ChatResult,
+    GLMProvider, ChatMessage, ChatResult,
     thinking_for_phase, THINKING_BUDGETS, PHASE_THINKING,
-    DEEPSEEK_SYSTEM_PROMPT,
+    GLM_SYSTEM_PROMPT,
 )
 from ede.models import Phase
 
@@ -31,14 +31,14 @@ def test_merge_phase_off_budget():
 
 def test_system_prompt_contains_constraints():
     """System prompt includes hard constraints."""
-    assert "Hard Constraints" in DEEPSEEK_SYSTEM_PROMPT
-    assert "spec and plan" in DEEPSEEK_SYSTEM_PROMPT
+    assert "Hard Constraints" in GLM_SYSTEM_PROMPT
+    assert "spec and plan" in GLM_SYSTEM_PROMPT
 
 
 def test_build_system_prompt_with_context():
     """System prompt builder injects project context."""
     ctx = "project:\n  type: web\n  frontend: react"
-    prompt = DeepSeekProvider.build_system_prompt(ctx)
+    prompt = GLMProvider.build_system_prompt(ctx)
     assert "web" in prompt
     assert "react" in prompt
     assert "Project Context" in prompt
@@ -46,7 +46,7 @@ def test_build_system_prompt_with_context():
 
 def test_estimate_tokens():
     """Token estimation is proportional to content length."""
-    provider = DeepSeekProvider(api_key="test")
+    provider = GLMProvider(api_key="test")
     msgs = [ChatMessage(role="user", content="Hello world " * 100)]
     est = provider.estimate_tokens(msgs)
     assert est > 0
@@ -57,7 +57,7 @@ def test_estimate_tokens():
 def test_chat_without_api_key_returns_placeholder():
     """Chat without API key returns a placeholder message."""
     import asyncio
-    provider = DeepSeekProvider(api_key="")
+    provider = GLMProvider(api_key="")
     msgs = [ChatMessage(role="user", content="Hi")]
     result = asyncio.run(provider.chat(msgs))
     assert "No API key" in result.content

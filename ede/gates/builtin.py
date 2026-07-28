@@ -115,7 +115,7 @@ async def make_coverage_gate(project_root: str = ".", threshold: int = 80) -> Ga
                 detail="coverage tool not available (skip)",
             )
 
-    return Gate("coverage", GateLevel.L3, check)
+    return Gate("coverage", GateLevel.L3, check, blocking=False)
 
 
 def register_builtin_gates(engine: GateEngine, project_root: str = ".") -> GateEngine:

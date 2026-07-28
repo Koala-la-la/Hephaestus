@@ -125,7 +125,12 @@ class StageEngine:
             results = await self.gates.run_gates(stage.gates)
             for r in results:
                 self.db.insert_gate_result(task_id, r.gate_name, r.passed, r.detail)
-            failed = [r for r in results if not r.passed]
+            # Non-blocking gates (e.g. coverage) never block — audit only.
+            non_blocking = [r for r in results if not r.passed and not self._gate_blocking(r.gate_name)]
+            if non_blocking:
+                self.db.write_audit(task_id, "gate_non_blocking_failed",
+                    str([r.gate_name for r in non_blocking]))
+            failed = [r for r in results if not r.passed and self._gate_blocking(r.gate_name)]
             if failed:
                 l3_failures = [f for f in failed if self._gate_level(f.gate_name) == 3]
                 if l3_failures:
@@ -175,6 +180,14 @@ class StageEngine:
                         diff_text = "[diff unavailable]"
                     accuracy_report = await self._reviewer.review_accuracy(task_id, agent_assessment, diff_text)
                     if accuracy_report.total_errors > 0:
+                        # Upgrade effective risk on all entries of the latest
+                        # change logs — self-assessment is inaccurate (spec §AC-007).
+                        for cl in change_logs:
+                            for e in self.db.get_change_entries(cl.get("change_id", "")):
+                                upgraded = {"low": "medium", "medium": "high", "high": "high"}.get(
+                                    e.get("agent_risk_label", "low"), "medium")
+                                self.db.update_change_entry_accuracy(
+                                    e.get("entry_id", ""), "inaccurate", upgraded)
                         self.db.update_task(task_id, status=TaskStatus.WAIT_USER.value, updated_at=now)
                         self.db.write_audit(task_id, "accuracy_blocked",
                             f"{accuracy_report.total_errors} inaccuracies found. {accuracy_report.summary}")
@@ -216,3 +229,7 @@ class StageEngine:
     def _gate_level(self, name: str) -> int:
         gate = self.gates._gates.get(name)
         return gate.level.value if gate else 0
+
+    def _gate_blocking(self, name: str) -> bool:
+        gate = self.gates._gates.get(name)
+        return gate.blocking if gate else True
