@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.0 (2026-08-13)
+
+### 设计文档 + 论文 + Harness 层原型脚手架
+- 新增 `engineering-agent-design.md`：专业型工程 Agent 完整架构设计（五层架构：Prompt/Context/Harness/Loop/Graph，manifest schema，工具权限矩阵，spec 快照锁定，五种 Loop 形态，多 Agent 三权分立，灰度三档分级）
+- 新增 `engineering-agent-thesis.md`：本科毕业论文大纲与主体内容
+- 新增 `engineering-agent/` 目录：Harness 层最小原型脚手架（AGENTS.md + spec.md + tasks.md），基于 design doc §19 实施路径
+
+### 核心理论贡献
+- 软硬约束判据：「能映射到 manifest 字段或 exit code 的约束可硬化」
+- 将可硬化的约束从 Prompt 下沉到 Harness/Loop 机制层
+
 ## v0.4.0 (2026-07-28)
 
 ### 模型切换：DeepSeek → GLM-5.2（智谱）
