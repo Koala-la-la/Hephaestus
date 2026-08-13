@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "engineering-agent"
+version = "0.5.0"
+description = "工程规范约束型 AI Agent — 将工程纪律从 Prompt 级软约束下沉到 Harness/Loop 机制层"
+readme = "docs/design-docs/harness/harness-core/spec.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/engineering_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

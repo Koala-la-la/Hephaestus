@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.6.0 (2026-08-13)
+
+### Harness 层最小原型实现
+- 新增 engineering-agent/ 代码实现（Python，55 个测试全通过）：
+  - manifest/：六片 Pydantic 数据模型 + ManifestStore 读写器 + archive/restore 归档恢复
+  - permissions/：DangerLevel L0-L3 + PermissionMatrix 阶段×工具矩阵 + ToolGate 拦截器
+  - spec/：SpecLock Git SHA 锁定（freeze/read_locked/check_committed）
+  - harness.py：集成入口 + spec-first 检查（无 spec 拦截 Edit）
+- 核心机制：spec-first 检查——把 Prompt 级「禁止无 spec 改代码」下沉到 Harness 机制层硬约束
+- 测试覆盖：55 passed（模型序列化 + 读写往返 + 归档恢复 + 权限矩阵 + L0-L3 拦截 + SHA 锁定 + 集成 case）
+
 ## v0.5.0 (2026-08-13)
 
 ### 设计文档 + 论文 + Harness 层原型脚手架
