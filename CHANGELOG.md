@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.0 (2026-08-14)
+
+### Loop 层最小原型实现
+- 新增 engineering-agent/loop/ 代码实现（Python，新增 34 个测试，累计 89 passed）：
+  - gate_checker.py：硬关卡校验器（GateCheck/GateResult/BatchResult + CODING_EXIT_GATES 编码出口关卡清单）
+  - state_tracker.py：loop_state 管理器（定位层+进度快照层，存 manifest phase3.loop_state，review PASS 后清空 pending_findings）
+  - upgrade_detector.py：minor→major 升级判定（needs_revalidation 占比>阈值 / finding 涉及需求章(1-3)或方案概览(4.1) / 连续 N 轮同类失败）
+- 核心机制：硬关卡校验 manifest 字段判 PASS/FAIL + 状态机现场保存 + 动态升级判定
+
 ## v0.6.0 (2026-08-13)
 
 ### Harness 层最小原型实现

@@ -18,11 +18,7 @@
 - 路径用 / 分隔（git 要求，Windows 下需转换）
 
 ### 3. 验证结果
-- `pytest tests/ -v`：48 passed（新增 7 个 spec 锁定测试，含 git 操作）
-  - check_committed（已commit/已修改未commit/未跟踪）
-  - freeze 返回 SHA / 未 commit 抛 RuntimeError
-  - read_locked 返回内容 / 修改后仍返回冻结版本
+- 7 个测试全通过（check_committed / freeze / read_locked / 不串版本）
 
 ### 4. Review
-- git subprocess 操作，无复杂业务逻辑
-- 主 agent 自检 → PASS
+- git subprocess 操作，主 agent 自检 → PASS
