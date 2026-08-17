@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.0 (2026-08-14)
+
+### Context 层最小原型实现
+- 新增 engineering-agent/context/ 代码实现（Python，新增 25 个测试，累计 114 passed）：
+  - matrix.py：ContextMatrix（5阶段×7类上下文 Push/Pull 配置表）
+  - feedback.py：FeedbackKeeper（反馈保鲜——只留最新，覆盖不累积）
+  - failure_patterns.py：FailurePatternStore（按标签检索，Pull→Push 升级）
+- 核心机制：Push/Pull 分界 + 反馈保鲜 + failure-patterns 按标签检索
+
 ## v0.7.0 (2026-08-14)
 
 ### Loop 层最小原型实现
