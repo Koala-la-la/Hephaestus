@@ -1,10 +1,6 @@
 # 执行轨迹日志：Task 6 — spec SHA 锁定
-
 - **Task**: Task 6: spec SHA 锁定
 - **Status**: Completed
-- **Started**: 2026-08-13
-- **Ended**: 2026-08-13
-
 ## 决策事件
 ### 1. 设计决策
 - freeze 返回 commit SHA（spec 版本 = commit 版本，§7.1）

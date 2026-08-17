@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.0 (2026-08-14)
+
+### Graph 层最小原型实现
+- 新增 engineering-agent/graph/ 代码实现（Python，新增 27 个测试，累计 141 passed）：
+  - finding_router.py：三级分级拦截（机器P0硬拦不可覆盖/agentP0人可覆盖/P1P2软记录）
+  - context_router.py：多 agent Context 路由（共享层+维度子集，5个reviewer角色）
+  - handoff.py：结构化 handoff + 按 to_reviewer 分组路由
+  - goal_checker.py：目标可衡量性机器粗筛（正则检查数字/阈值）
+- 核心机制：多 agent 三权分立的数据模型 + 路由逻辑（不含 agent runtime 调度）
+
 ## v0.8.0 (2026-08-14)
 
 ### Context 层最小原型实现
