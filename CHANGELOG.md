@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.0 (2026-08-14)
+
+### 🎉 五层架构完整实现
+
+五层架构（Prompt/Context/Harness/Loop/Graph）全部实现，162 个测试全通过。
+
+- **Prompt 层**（新增）：三子层组装（L1身份/L2任务说明/L3协议）+ L3三子协议解析（tool_call/step_output/task_complete）+ confirm token（两类确认+串行优先级队列+超时默认拒绝）
+- 累计 162 passed（Harness 55 + Loop 34 + Context 25 + Graph 27 + Prompt 21）
+- design doc §19 实施路径全部走完：Harness → Loop → Context → Graph → Prompt
+- 核心机制：软硬约束判据落地——可硬化的约束从 Prompt 下沉到 Harness/Loop 机制层
+
 ## v0.9.0 (2026-08-14)
 
 ### Graph 层最小原型实现
